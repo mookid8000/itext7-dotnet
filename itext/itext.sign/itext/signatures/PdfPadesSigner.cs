@@ -105,8 +105,7 @@ namespace iText.Signatures {
         /// </param>
         public virtual void SignWithBaselineBProfile(SignerProperties signerProperties, IX509Certificate[] chain, 
             IExternalSignature externalSignature) {
-            IX509Certificate[] fullChain = issuingCertificateRetriever.RetrieveMissingCertificates(chain);
-            PerformSignDetached(signerProperties, true, externalSignature, fullChain, null);
+            PerformSignDetached(signerProperties, true, externalSignature, chain, null);
         }
 
         /// <summary>
@@ -127,7 +126,7 @@ namespace iText.Signatures {
         /// </param>
         public virtual void SignWithBaselineBProfile(SignerProperties signerProperties, IX509Certificate[] chain, 
             IPrivateKey privateKey) {
-            IExternalSignature externalSignature = new PrivateKeySignature(privateKey, DEFAULT_DIGEST_ALGORITHM);
+            IExternalSignature externalSignature = new PrivateKeySignature(privateKey, GetDigestAlgorithm(privateKey));
             SignWithBaselineBProfile(signerProperties, chain, externalSignature);
         }
 
@@ -154,8 +153,7 @@ namespace iText.Signatures {
         /// </param>
         public virtual void SignWithBaselineTProfile(SignerProperties signerProperties, IX509Certificate[] chain, 
             IExternalSignature externalSignature, ITSAClient tsaClient) {
-            IX509Certificate[] fullChain = issuingCertificateRetriever.RetrieveMissingCertificates(chain);
-            PerformSignDetached(signerProperties, true, externalSignature, fullChain, tsaClient);
+            PerformSignDetached(signerProperties, true, externalSignature, chain, tsaClient);
         }
 
         /// <summary>
@@ -181,7 +179,7 @@ namespace iText.Signatures {
         /// </param>
         public virtual void SignWithBaselineTProfile(SignerProperties signerProperties, IX509Certificate[] chain, 
             IPrivateKey privateKey, ITSAClient tsaClient) {
-            IExternalSignature externalSignature = new PrivateKeySignature(privateKey, DEFAULT_DIGEST_ALGORITHM);
+            IExternalSignature externalSignature = new PrivateKeySignature(privateKey, GetDigestAlgorithm(privateKey));
             SignWithBaselineTProfile(signerProperties, chain, externalSignature, tsaClient);
         }
 
@@ -208,10 +206,9 @@ namespace iText.Signatures {
         /// </param>
         public virtual void SignWithBaselineLTProfile(SignerProperties signerProperties, IX509Certificate[] chain, 
             IExternalSignature externalSignature, ITSAClient tsaClient) {
-            IX509Certificate[] fullChain = issuingCertificateRetriever.RetrieveMissingCertificates(chain);
-            CreateRevocationClients(fullChain, true);
+            CreateRevocationClients(chain[0], true);
             try {
-                PerformSignDetached(signerProperties, false, externalSignature, fullChain, tsaClient);
+                PerformSignDetached(signerProperties, false, externalSignature, chain, tsaClient);
                 using (Stream inputStream = CreateInputStream()) {
                     using (PdfDocument pdfDocument = new PdfDocument(new PdfReader(inputStream), new PdfWriter(outputStream), 
                         new StampingProperties().UseAppendMode())) {
@@ -248,7 +245,7 @@ namespace iText.Signatures {
         /// </param>
         public virtual void SignWithBaselineLTProfile(SignerProperties signerProperties, IX509Certificate[] chain, 
             IPrivateKey privateKey, ITSAClient tsaClient) {
-            IExternalSignature externalSignature = new PrivateKeySignature(privateKey, DEFAULT_DIGEST_ALGORITHM);
+            IExternalSignature externalSignature = new PrivateKeySignature(privateKey, GetDigestAlgorithm(privateKey));
             SignWithBaselineLTProfile(signerProperties, chain, externalSignature, tsaClient);
         }
 
@@ -275,10 +272,9 @@ namespace iText.Signatures {
         /// </param>
         public virtual void SignWithBaselineLTAProfile(SignerProperties signerProperties, IX509Certificate[] chain
             , IExternalSignature externalSignature, ITSAClient tsaClient) {
-            IX509Certificate[] fullChain = issuingCertificateRetriever.RetrieveMissingCertificates(chain);
-            CreateRevocationClients(fullChain, true);
+            CreateRevocationClients(chain[0], true);
             try {
-                PerformSignDetached(signerProperties, false, externalSignature, fullChain, tsaClient);
+                PerformSignDetached(signerProperties, false, externalSignature, chain, tsaClient);
                 using (Stream inputStream = CreateInputStream()) {
                     using (PdfDocument pdfDocument = new PdfDocument(new PdfReader(inputStream), new PdfWriter(CreateOutputStream
                         ()), new StampingProperties().UseAppendMode())) {
@@ -316,7 +312,7 @@ namespace iText.Signatures {
         /// </param>
         public virtual void SignWithBaselineLTAProfile(SignerProperties signerProperties, IX509Certificate[] chain
             , IPrivateKey privateKey, ITSAClient tsaClient) {
-            IExternalSignature externalSignature = new PrivateKeySignature(privateKey, DEFAULT_DIGEST_ALGORITHM);
+            IExternalSignature externalSignature = new PrivateKeySignature(privateKey, GetDigestAlgorithm(privateKey));
             SignWithBaselineLTAProfile(signerProperties, chain, externalSignature, tsaClient);
         }
 
@@ -339,7 +335,7 @@ namespace iText.Signatures {
                 if (signatureNames.IsEmpty()) {
                     throw new PdfException(SignExceptionMessageConstant.NO_SIGNATURES_TO_PROLONG);
                 }
-                CreateRevocationClients(new IX509Certificate[0], false);
+                CreateRevocationClients(null, false);
                 PerformLtvVerification(pdfDocument, signatureNames, LtvVerification.RevocationDataNecessity.OPTIONAL);
                 if (tsaClient != null) {
                     PerformTimestamping(pdfDocument, outputStream, tsaClient);
@@ -531,9 +527,10 @@ namespace iText.Signatures {
 
         private void PerformSignDetached(SignerProperties signerProperties, bool isFinal, IExternalSignature externalSignature
             , IX509Certificate[] chain, ITSAClient tsaClient) {
+            IX509Certificate[] fullChain = issuingCertificateRetriever.RetrieveMissingCertificates(chain);
             PdfSigner signer = CreatePdfSigner(signerProperties, isFinal);
             try {
-                signer.SignDetached(externalSignature, chain, null, null, tsaClient, estimatedSize, PdfSigner.CryptoStandard
+                signer.SignDetached(externalSignature, fullChain, null, null, tsaClient, estimatedSize, PdfSigner.CryptoStandard
                     .CADES);
             }
             finally {
@@ -612,19 +609,36 @@ namespace iText.Signatures {
             return tempFile;
         }
 
-        private void CreateRevocationClients(IX509Certificate[] chain, bool clientsRequired) {
+        private void CreateRevocationClients(IX509Certificate signingCert, bool clientsRequired) {
             if (crlClient == null && ocspClient == null && clientsRequired) {
-                IX509Certificate signingCertificate = (IX509Certificate)chain[0];
+                IX509Certificate signingCertificate = (IX509Certificate)signingCert;
                 if (CertificateUtil.GetOCSPURL(signingCertificate) == null && CertificateUtil.GetCRLURL(signingCertificate
                     ) == null) {
                     throw new PdfException(SignExceptionMessageConstant.DEFAULT_CLIENTS_CANNOT_BE_CREATED);
                 }
             }
             if (crlClient == null) {
-                crlClient = new CrlClientOnline(chain);
+                crlClient = new CrlClientOnline();
             }
             if (ocspClient == null) {
                 ocspClient = new OcspClientBouncyCastle(null);
+            }
+        }
+
+        private String GetDigestAlgorithm(IPrivateKey privateKey) {
+            String signatureAlgorithm = SignUtils.GetPrivateKeyAlgorithm(privateKey);
+            switch (signatureAlgorithm) {
+                case "Ed25519": {
+                    return DigestAlgorithms.SHA512;
+                }
+
+                case "Ed448": {
+                    return DigestAlgorithms.SHAKE256;
+                }
+
+                default: {
+                    return DEFAULT_DIGEST_ALGORITHM;
+                }
             }
         }
     }

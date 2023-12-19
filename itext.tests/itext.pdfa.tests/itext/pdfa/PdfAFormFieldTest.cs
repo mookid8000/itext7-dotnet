@@ -559,8 +559,37 @@ namespace iText.Pdfa {
             docToCopy.Close();
             doc2.Close();
             NUnit.Framework.Assert.IsNull(new VeraPdfValidator().Validate(outPdf));
+            // Android-Conversion-Skip-Line (TODO DEVSIX-7377 introduce pdf\a validation on Android)
             NUnit.Framework.Assert.IsNull(new CompareTool().CompareByContent(outPdf, cmp, DESTINATION_FOLDER, "diff_")
                 );
+        }
+
+        [NUnit.Framework.Test]
+        public virtual void PdfASignatureFieldWithTextAndFontTest() {
+            String name = "pdfASignatureFieldTestWithText";
+            String fileName = DESTINATION_FOLDER + name + ".pdf";
+            String cmp = SOURCE_FOLDER + "cmp/PdfAFormFieldTest/cmp_" + name + ".pdf";
+            PdfFont fontFreeSans = PdfFontFactory.CreateFont(SOURCE_FOLDER + "FreeSans.ttf", "WinAnsi", PdfFontFactory.EmbeddingStrategy
+                .FORCE_EMBEDDED);
+            MakePdfDocument(fileName, cmp, (pdfDoc) => {
+                SignatureFieldAppearance signatureFieldAppearance = new SignatureFieldAppearance("Signature1");
+                signatureFieldAppearance.SetContent(new SignedAppearanceText().SetLocationLine("HEEELLLLLO"));
+                signatureFieldAppearance.SetInteractive(true);
+                signatureFieldAppearance.SetFont(fontFreeSans);
+                pdfDoc.Add(signatureFieldAppearance);
+                PdfAcroForm form = PdfFormCreator.GetAcroForm(pdfDoc.GetPdfDocument(), true);
+                SignatureFormFieldBuilder signatureFormFieldBuilder = new SignatureFormFieldBuilder(pdfDoc.GetPdfDocument(
+                    ), "Signature2");
+                SignatureFieldAppearance signatureFieldAppearance2 = new SignatureFieldAppearance("Signature2");
+                signatureFieldAppearance2.SetContent(new SignedAppearanceText().SetLocationLine("Byeeee"));
+                signatureFieldAppearance2.SetInteractive(true);
+                PdfSignatureFormField signatureFormField = signatureFormFieldBuilder.SetWidgetRectangle(new Rectangle(200, 
+                    200, 40, 40)).SetFont(fontFreeSans).SetConformanceLevel(PdfAConformanceLevel.PDF_A_4).CreateSignature(
+                    );
+                signatureFormField.GetFirstFormAnnotation().SetFormFieldElement(signatureFieldAppearance2);
+                form.AddField(signatureFormField);
+            }
+            );
         }
 
         private void MakePdfDocument(String outPdf, String cmp, Action<Document> consumer) {
